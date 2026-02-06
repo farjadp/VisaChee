@@ -1,129 +1,69 @@
+from questions import BotText
+
 def calculate_score(answers):
     """
-    Calculates the eligibility score (0-100) for each country based on user answers.
-    
-    Targets:
-    - NL: Netherlands
-    - FI: Finland
-    - DK: Denmark
-    - UAE: United Arab Emirates
-    - CA: Canada
-    
-    Expected 'answers' dictionary keys (from Deep Dive):
-    - d_1_age, d_1_edu, d_1_eng
-    - d_2_cash, d_2_nw
-    - d_3_team, d_3_idea
-    - d_4_rejection, d_4_active
+    Analyzes user profile and returns the specific archetype message + scores.
     """
     
-    # Initialize scores
-    scores = {
-        "NL": 50, # Netherlands starts neutral
-        "FI": 50,
-        "DK": 50,
-        "UAE": 50,
-        "CA": 50
-    }
-
-    # Helper to safe get answer
-    def get_ans(key):
-        return answers.get(key, "")
-
-    # --- 1. PROFILE (Age, Edu, English) ---
-    # Age
-    age = get_ans("d_1_age")
-    if age == "low": # 18-35 (Ideal for most)
-        scores["CA"] += 10
-        scores["NL"] += 5
-    elif age == "high": # 51+ (Harder for points-based)
-        scores["CA"] -= 10
+    # Extract Answers
+    field = answers.get("q_field", "")
+    stage = answers.get("q_stage", "")
+    team = answers.get("q_team", "")
+    cash = answers.get("q_cash", "")
+    lang = answers.get("q_eng", "")
     
-    # Edu
-    edu = get_ans("d_1_edu")
-    if edu == "high":
-        scores["NL"] += 10
-        scores["DK"] += 5
-    elif edu == "low":
-        scores["DK"] -= 10 # Denmark likes highly skilled
-
-    # English
-    eng = get_ans("d_1_eng")
-    if eng == "low":
-        # Almost all require English
-        for country in scores:
-            scores[country] -= 20
+    messages = []
     
-    # --- 2. TREASURE (Cash, Net Worth) ---
-    cash = get_ans("d_2_cash")
-    nw = get_ans("d_2_nw")
+    # --- منطق تشخیص تیپ شخصیتی (Archetype Logic) ---
 
-    # UAE & Canada love money
-    if cash == "high": # > $50k
-        scores["UAE"] += 20
-        scores["CA"] += 10
-        scores["NL"] += 10 # Good runway
-    elif cash == "low": # < $20k
-        scores["UAE"] -= 30
-        scores["CA"] -= 20
-        scores["NL"] -= 10
-    
-    if nw == "high": # > $300k
-        scores["CA"] += 20 # Critical for Canada Angels
-        scores["UAE"] += 10
-    
-    # --- 3. STRATEGY (Team, Idea) ---
-    team = get_ans("d_3_team")
-    idea = get_ans("d_3_idea")
+    # --- منطق تشخیص تیپ شخصیتی (Archetype Logic) ---
 
-    # Finland Constraint: TEAM IS MANDATORY
-    if team == "solo":
-        scores["FI"] = 0
-        scores["DK"] -= 10 # Denmark prefers teams
-    elif team == "team":
-        scores["FI"] += 30 # Huge boost for Finland
-        scores["DK"] += 10
-    
-    # Idea Type
-    if idea == "tech":
-        scores["DK"] += 20 # Denmark loves tech/innovative
-        scores["FI"] += 10
-        scores["NL"] += 10
-    elif idea == "service": # Consulting/Agency
-        scores["DK"] = 0 # Denmark usually rejects traditional
-        scores["FI"] -= 20
-        scores["NL"] -= 10 # Netherlands prefers innovative
-        scores["UAE"] += 10 # UAE is okay with services
-    
-    # --- 4. FINAL BOSS (History, Active) ---
-    rejection = get_ans("d_4_rejection")
-    if rejection == "yes":
-        # Rejections are bad news generally
-        for country in scores:
-            scores[country] -= 20
-    
-    active = get_ans("d_4_active")
-    if active == "active":
-        scores["NL"] += 20 # Netherlands likes traction
-        scores["UK"] = 0 # (Not in target list but good to know)
-        scores["UAE"] += 10
+    # 1. تیپ "سرمایه گذار / PNP" (> 70k USD)
+    if cash == "high": # > 70k
+        main_message = BotText.RESULT_INVESTOR
+        scores = {"CA": 95, "UAE": 85, "DK": 40, "FI": 10}
+        
+    # 2. تیپ "نخبگان آمریکا" (50k-100k + Fluent + Tech/Science)
+    elif cash == "high_mid" and lang == "fluent" and field == "tech":
+        main_message = BotText.RESULT_USA_ELITE
+        scores = {"US": 98, "CA": 80, "NL": 70, "DK": 70}
 
-    # --- FINAL CLAMP & FORMATTING ---
-    for country in scores:
-        if scores[country] > 100: scores[country] = 100
-        if scores[country] < 0: scores[country] = 0
+    # 3. تیپ "اسکاندیناوی / اروپا" (20k - 50k)
+    elif cash == "mid":
+        # Good budget for Finland/Denmark startup visas
+        main_message = BotText.RESULT_SOLO_FIGHTER
+        scores = {"FI": 90, "DK": 90, "NL": 80, "CA": 30}
 
-    return scores
+    # 4. تیپ "بودجه کم" (< 20k)
+    elif cash == "low":
+        main_message = BotText.RESULT_NOT_READY
+        scores = {"UAE": 40, "UK": 30, "FI": 10, "CA": 0}
 
-def format_results(scores):
+    # 5. حالت پیشفرض (Default)
+    else:
+        main_message = (
+            "🔍 **نتیجه تحلیل:**\n"
+            "شرایطت بینابینه. با این بودجه و شرایط، باید دقیق‌تر بررسی بشه.\n"
+            "پیشنهاد میکنم تحلیل دقیق (۲۰ سوالی) رو انجام بدی."
+        )
+        scores = {"NL": 50, "FI": 50, "DK": 50}
+
+    return scores, [main_message]
+
+def format_results(scores, messages):
     """
     Returns a markdown string for the results.
     """
+    # Simply return the main archetype message, followed by scores if needed, 
+    # but the prompt emphasis is on the "Message" more than scores now.
+    
+    text = messages[0] + "\n\n"
+    
+    # Add small score summary at bottom
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    
-    text = "🎯 **Assessment Results:**\n\n"
+    text += "📊 **امتیازهای تخمینی:**\n"
     for country, score in sorted_scores:
-        bar = "🟩" * (score // 10) + "⬜️" * ((100 - score) // 10)
-        text += f"**{country}:** {score}/100\n{bar}\n\n"
-    
-    text += "ℹ️ *NL=Netherlands, FI=Finland, DK=Denmark, UAE=Dubai, CA=Canada*\n"
+        if score > 0:
+            text += f"{country}: {score}% | "
+            
     return text

@@ -102,27 +102,39 @@ async def handle_quick_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await ask_quick_question(update, context, q_idx + 1)
 
 async def show_quick_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Quick Logic: Just random binary check for demo based on budget
-    # In real world, use logic.py even for quick scan if needed
-    # Requirement: "Budget < $20k -> Reject Canada/UAE" which is implicit in Q1 result
+    # Calculate scores and get the archetype message
+    scores, messages = calculate_score(context.user_data)
     
-    q1_ans = context.user_data.get("q1") # War chest
-    
-    text = ""
-    if q1_ans == "no":
-        text = BotText.QUICK_RESULT_NO_MATCH
-    else:
-        text = BotText.QUICK_RESULT_MATCH
+    # The first message in the list is the main archetype result
+    main_message = messages[0]
         
-    keyboard = [[InlineKeyboardButton(BotText.CONTACT_ADMIN, url="https://t.me/yourusername")]]
+    # Format the full result utilizing the helper, although format_results now just expects the same structure
+    result_details = format_results(scores, messages)
+    
+    keyboard = [[InlineKeyboardButton(BotText.CONTACT_ADMIN, callback_data="contact_info")]]
+    # Add Deep Dive Button
+    keyboard.append([InlineKeyboardButton(BotText.BUTTON_DEEP_DIVE, callback_data="start_deep_dive")])
     keyboard.append([InlineKeyboardButton(BotText.RESTART, callback_data="restart")])
     
     await update.callback_query.message.edit_text(
-        text, 
+        result_details, 
         reply_markup=InlineKeyboardMarkup(keyboard), 
         parse_mode="Markdown"
     )
     return ConversationHandler.END
+
+async def start_deep_from_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Transition from Quick Scan Result to Deep Dive."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Initialize Deep Dive settings
+    context.user_data['path'] = 'B'
+    context.user_data['level_idx'] = 1
+    context.user_data['deep_q_idx'] = 0
+    
+    # Start Level 1
+    return await start_deep_level(update, context, 1)
 
 # --- PATH B: DEEP DIVE HANDLERS ---
 
@@ -197,16 +209,31 @@ async def handle_deep_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return await ask_deep_question(update, context)
 
 async def show_deep_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    scores = calculate_score(context.user_data)
-    result_text = format_results(scores)
+    scores, messages = calculate_score(context.user_data)
+    result_text = format_results(scores, messages)
     
-    keyboard = [[InlineKeyboardButton(BotText.CONTACT_ADMIN, url="https://t.me/yourusername")]]
+    keyboard = [[InlineKeyboardButton(BotText.CONTACT_ADMIN, callback_data="contact_info")]]
     keyboard.append([InlineKeyboardButton(BotText.RESTART, callback_data="restart")])
 
     await update.callback_query.message.edit_text(
         result_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+async def contact_info_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shows contact details."""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [[InlineKeyboardButton(BotText.RESTART, callback_data="restart")]]
+    
+    await query.message.edit_text(
+        BotText.CONTACT_DETAILS,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
+        disable_web_page_preview=True
     )
     return ConversationHandler.END
 
@@ -226,7 +253,12 @@ def main():
 
     # Conversation Handler
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(restart, pattern="^restart$"),
+            CallbackQueryHandler(contact_info_handler, pattern="^contact_info$"),
+            CallbackQueryHandler(start_deep_from_quick, pattern="^start_deep_dive$")
+        ],
         states={
             CHOOSING_PATH: [
                 CallbackQueryHandler(choose_path, pattern="^path_")
